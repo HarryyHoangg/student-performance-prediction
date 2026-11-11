@@ -43,5 +43,8 @@ X = df_encoded.drop(
 
 y = df_encoded["Test_Score"]
 
-print(X.head())
-print(y.head())
+print("Các cột X:")
+print(X.columns.tolist())
+
+print("\nKích thước X:", X.shape)
+print("Kích thước y:", y.shape)
