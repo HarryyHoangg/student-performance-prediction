@@ -1,45 +1,36 @@
+
 import pandas as pd
-from pathlib import Path
+
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score
+)
 
-# Lấy thư mục gốc của project
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Đường dẫn đến file dữ liệu
-DATA_PATH = BASE_DIR / "data" / "student_performance_cleaned.csv"
-
-# Kiểm tra file tồn tại
-print("File path:", DATA_PATH)
-print("File exists:", DATA_PATH.exists())
-
-# Đọc dữ liệu
-df = pd.read_csv(DATA_PATH)
-
+# 1. Đọc dữ liệu
+df = pd.read_csv("../data/student_performance_cleaned.csv")
 print(df.head())
 
-
-#Xác định X,y
+# 2. Feature Engineering
 df["Study_Attendance_Index"] = (
     df["Study_Hours"] * df["Attendance(%)"] / 100
 )
 
-df_encoded = pd.get_dummies(
-    df,
-    columns=["Gender"],
-    dtype=int
-)
-
-X = df_encoded.drop(
+# 3. Xác định X và y
+X = df.drop(
     columns=["Test_Score", "Student_ID", "Grade"],
     errors="ignore"
 )
 
-y = df_encoded["Test_Score"]
+y = df["Test_Score"]
 
-#Chia train test
+# 4. Chia Train và Test
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
@@ -50,63 +41,102 @@ X_train, X_test, y_train, y_test = train_test_split(
 print("X_train:", X_train.shape)
 print("X_test:", X_test.shape)
 
-print("y_train:", y_train.shape)
-print("y_test:", y_test.shape)
+# 5. Xác định các nhóm cột
+numeric_features = [
+    "Age",
+    "Study_Hours",
+    "Attendance(%)",
+    "Study_Attendance_Index"
+]
 
+categorical_features = ["Gender"]
 
-# Xử lý giá trị khuyết
-imputer = SimpleImputer(strategy="median")
+# 6. Pipeline xử lý dữ liệu số
+numeric_transformer = Pipeline(steps=[
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler", StandardScaler())
+])
 
-X_train_imputed = imputer.fit_transform(X_train)
-X_test_imputed = imputer.transform(X_test)
+# 7. Pipeline xử lý dữ liệu phân loại
+categorical_transformer = Pipeline(steps=[
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("onehot", OneHotEncoder(
+    drop="first",
+    handle_unknown="ignore"
+))
+])
 
-# Chuẩn hóa dữ liệu
-scaler = StandardScaler()
+# 8. Kết hợp bằng ColumnTransformer
+preprocessor = ColumnTransformer(transformers=[
+    ("num", numeric_transformer, numeric_features),
+    ("cat", categorical_transformer, categorical_features)
+])
 
-X_train_scaled = scaler.fit_transform(X_train_imputed)
-X_test_scaled = scaler.transform(X_test_imputed)
+# 9. Tạo Pipeline hoàn chỉnh
+model = Pipeline(steps=[
+    ("preprocessor", preprocessor),
+    ("regressor", LinearRegression())
+])
 
-# Kiểm tra kết quả
-import numpy as np
+# 10. Huấn luyện mô hình
+model.fit(X_train, y_train)
 
-print("Mean:", X_train_scaled.mean(axis=0))
-print("Std:", X_train_scaled.std(axis=0))
+# 11. Dự đoán
+y_pred = model.predict(X_test)
 
-print("NaN trong train:", np.isnan(X_train_scaled).sum())
-print("NaN trong test:", np.isnan(X_test_scaled).sum())
-
-
-
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.linear_model import LinearRegression
-
-# Khởi tạo mô hình
-model = LinearRegression()
-
-# Huấn luyện mô hình
-model.fit(X_train_scaled, y_train)
-
-# Dự đoán điểm thi
-y_pred = model.predict(X_test_scaled)
-
-# So sánh kết quả
-print("Điểm thực tế:")
-print(y_test.head(10).values)
-
-print("Điểm dự đoán:")
-print(y_pred[:10])
-
-# Đánh giá mô hình
+# 12. Đánh giá mô hình
 mae = mean_absolute_error(y_test, y_pred)
 mse = mean_squared_error(y_test, y_pred)
 r2 = r2_score(y_test, y_pred)
 
+print("\n--- MODEL EVALUATION ---")
 print("MAE:", mae)
 print("MSE:", mse)
 print("R2 Score:", r2)
 
-print("Intercept:", model.intercept_)
-print("Coefficients:", model.coef_)
+# 13. So sánh kết quả
+results = pd.DataFrame({
+    "Actual": y_test.values,
+    "Predicted": y_pred
+})
 
-print("\nFeature names:")
-print(X.columns.tolist())
+print("\n--- PREDICTION RESULTS ---")
+print(results.head(10))
+
+
+# Lấy tên các features sau preprocessing
+feature_names = model.named_steps[
+    "preprocessor"
+].get_feature_names_out()
+
+# Lấy coefficients của Linear Regression
+coefficients = model.named_steps[
+    "regressor"
+].coef_
+
+# Hiển thị thành bảng
+coef_df = pd.DataFrame({
+    "Feature": feature_names,
+    "Coefficient": coefficients
+})
+
+print("\n--- MODEL COEFFICIENTS ---")
+print(coef_df)
+
+print("\nIntercept:", model.named_steps["regressor"].intercept_)
+
+pd.set_option("display.max_rows", None)
+pd.set_option("display.max_columns", None)
+pd.set_option("display.width", None)
+
+print(coef_df.to_string(index=False))
+coef_df["Abs_Coefficient"] = (
+    coef_df["Coefficient"].abs()
+)
+
+coef_df = coef_df.sort_values(
+    by="Abs_Coefficient",
+    ascending=False
+)
+
+print(coef_df.to_string(index=False))
